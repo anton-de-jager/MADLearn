@@ -21,22 +21,25 @@ public class LmsDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.HasDefaultSchema("dbo");
+
         modelBuilder.Entity<User>(e => {
+            e.ToTable("Users", "dbo");
             e.HasIndex(u => u.Email).IsUnique();
             e.Property(u => u.Role).HasDefaultValue("Student");
         });
 
         modelBuilder.Entity<UserProgress>(e => {
+            e.ToTable("UserProgresses", "dbo");
             e.HasIndex(p => new { p.UserId, p.LessonId }).IsUnique();
         });
 
-        modelBuilder.Entity<Course>().ToTable("Courses");
-        modelBuilder.Entity<Module>().ToTable("Modules");
-        modelBuilder.Entity<Lesson>().ToTable("Lessons");
-        modelBuilder.Entity<Test>().ToTable("Tests");
-        modelBuilder.Entity<Question>().ToTable("Questions");
-        modelBuilder.Entity<Answer>().ToTable("Answers");
-        modelBuilder.Entity<UserProgress>().ToTable("UserProgresses");
-        modelBuilder.Entity<TestResult>().ToTable("TestResults");
+        modelBuilder.Entity<Course>().ToTable("Courses", "dbo");
+        modelBuilder.Entity<Module>().ToTable("Modules", "dbo");
+        modelBuilder.Entity<Lesson>().ToTable("Lessons", "dbo");
+        modelBuilder.Entity<Test>().ToTable("Tests", "dbo");
+        modelBuilder.Entity<Question>().ToTable("Questions", "dbo");
+        modelBuilder.Entity<Answer>().ToTable("Answers", "dbo");
+        modelBuilder.Entity<TestResult>().ToTable("TestResults", "dbo");
     }
 }

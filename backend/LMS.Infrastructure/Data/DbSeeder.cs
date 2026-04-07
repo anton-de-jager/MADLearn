@@ -1,5 +1,7 @@
 using LMS.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace LMS.Infrastructure.Data;
 
@@ -7,7 +9,21 @@ public static class DbSeeder
 {
     public static async Task SeedAsync(LmsDbContext context)
     {
-        await context.Database.EnsureCreatedAsync();
+        // Ensure LMS tables exist. EnsureCreatedAsync handles a fresh DB,
+        // but on a shared remote DB it may skip creation if other tables exist.
+        // So we always check explicitly for our Users table afterwards.
+        try { await context.Database.EnsureCreatedAsync(); } catch { /* no CREATE DB rights — handled below */ }
+
+        // Check if OUR tables exist regardless of what EnsureCreatedAsync did
+        var usersTableExists = await context.Database
+            .SqlQueryRaw<int>("SELECT COUNT(*) AS Value FROM sys.tables WHERE name = 'Users'")
+            .FirstAsync() > 0;
+
+        if (!usersTableExists)
+        {
+            var creator = context.GetService<IRelationalDatabaseCreator>();
+            await creator.CreateTablesAsync();
+        }
 
         if (await context.Users.AnyAsync()) return;
 
