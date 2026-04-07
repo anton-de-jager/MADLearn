@@ -1,0 +1,108 @@
+# ============================================================
+# LMS - Full Stack Developer Bootcamp
+# .gitignore
+# ============================================================
+
+# -------------------------------------------------------
+# .NET / C#
+# -------------------------------------------------------
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+*.rsuser
+*.pidb
+*.svclog
+*.scc
+
+# NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Publish output
+publish/
+PublishProfiles/
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# -------------------------------------------------------
+# Angular / Node
+# -------------------------------------------------------
+node_modules/
+dist/
+.angular/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Angular cache
+.angular/cache/
+
+# -------------------------------------------------------
+# Environment / Secrets
+# -------------------------------------------------------
+appsettings.Production.json
+appsettings.Staging.json
+*.env
+.env
+.env.*
+!.env.example
+secrets.json
+**/secrets.json
+
+# -------------------------------------------------------
+# OS
+# -------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# -------------------------------------------------------
+# Editors
+# -------------------------------------------------------
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+*.swp
+*.swo
+*~
+
+# -------------------------------------------------------
+# Logs & temp
+# -------------------------------------------------------
+*.log
+*.tmp
+*.temp
+logs/
