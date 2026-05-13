@@ -67,10 +67,19 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 // CORS for Angular
+// CORS_ORIGINS (comma-separated) in production lets deploy.ps1 inject the public
+// SPA origin (https://madtraining.madleads.ai) via the API's .env. Dev defaults
+// keep ng serve working on either port without extra config.
+var corsOrigins = (Environment.GetEnvironmentVariable("CORS_ORIGINS") ?? string.Empty)
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+if (corsOrigins.Length == 0)
+{
+    corsOrigins = new[] { "http://localhost:4200", "http://localhost:4202" };
+}
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
-        policy.WithOrigins("http://localhost:4200")
+        policy.WithOrigins(corsOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod());
 });

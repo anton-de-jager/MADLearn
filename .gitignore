@@ -77,6 +77,7 @@ appsettings.Staging.json
 .env
 .env.*
 !.env.example
+!.env.deploy.example
 secrets.json
 **/secrets.json
 
@@ -107,3 +108,8 @@ $RECYCLE.BIN/
 *.tmp
 *.temp
 logs/
+
+# -------------------------------------------------------
+# Deploy
+# -------------------------------------------------------
+.deploy/
