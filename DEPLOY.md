@@ -46,42 +46,112 @@ Credentials live in **`.env.deploy`** at the repo root (gitignored). Copy
 
 ## One-time prerequisites
 
+> The DreamCompute box does **NOT** use the DreamHost panel for hosting —
+> Apache vhosts live in `/etc/apache2/sites-available/` and certs are issued
+> directly with `certbot`. The vhost/cert setup needs **`sudo` on the box**.
+> The `ubuntu` user (passwordless sudo) is the standard way to run those
+> commands; `madproducts` owns the app files and is what `deploy.ps1` connects
+> as.
+
 ### 1. DNS
 
-Both A records already exist on DreamHost (per task brief). Confirm:
+Both A records already exist (per task brief). Confirm:
 
 ```bash
 dig +short madtraining.madleads.ai      # -> 208.113.128.35
 dig +short madtrainingapi.madleads.ai   # -> 208.113.128.35
 ```
 
-### 2. DreamHost panel — add hosting for both subdomains
+### 2. Web roots (as `madproducts`)
 
-**Domains -> Manage Domains -> Add Hosting** for each:
+```bash
+ssh madproducts@208.113.128.35 \
+  'mkdir -p /home/madproducts/madtraining.madleads.ai \
+            /home/madproducts/madtrainingapi.madleads.ai \
+            /home/madproducts/madtraining-api'
+```
 
-| Domain | Type | Notes |
-|---|---|---|
-| `madtraining.madleads.ai`    | Fully Hosted | Web root `/home/madproducts/madtraining.madleads.ai`. Do **NOT** tick Passenger. |
-| `madtrainingapi.madleads.ai` | Fully Hosted | Web root `/home/madproducts/madtrainingapi.madleads.ai`. Do **NOT** tick Passenger. Apache must have `mod_proxy`, `mod_proxy_http`, `mod_rewrite`, `mod_headers` enabled (already on, used by the `api.madleads.ai` reverse-proxy). |
+### 3. Apache vhosts (HTTP-only, as `ubuntu` with sudo)
 
-### 3. Let's Encrypt certificates (after step 2)
+Drop two vhost files into `/etc/apache2/sites-available/`:
 
-Order matters — the SPA cert first, then the API cert. Both are issued through the panel.
+**`madtraining.madleads.ai.conf`** — static SPA with ACME alias + FallbackResource:
+```apache
+<VirtualHost *:80>
+    ServerName madtraining.madleads.ai
+    Alias /.well-known/acme-challenge/ /var/www/letsencrypt/.well-known/acme-challenge/
+    <Directory /var/www/letsencrypt/.well-known/acme-challenge>
+        Options None
+        AllowOverride None
+        Require all granted
+    </Directory>
+    DocumentRoot /home/madproducts/madtraining.madleads.ai
+    <Directory /home/madproducts/madtraining.madleads.ai>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+        FallbackResource /index.html
+    </Directory>
+    ErrorLog ${APACHE_LOG_DIR}/madtraining.madleads.ai.error.log
+    CustomLog ${APACHE_LOG_DIR}/madtraining.madleads.ai.access.log combined
+</VirtualHost>
+```
 
-1. Confirm DNS has propagated for **both** records (`dig +short ...`).
-2. **DreamHost panel -> Domains -> Manage Domains -> Secure Hosting**
-   - Click **Add** next to `madtraining.madleads.ai` -> "Free Let's Encrypt certificate". Wait ~1-2 min.
-   - Click **Add** next to `madtrainingapi.madleads.ai` -> same. Wait ~1-2 min.
-3. Verify:
-   ```bash
-   curl -I https://madtraining.madleads.ai          # 200/301
-   curl -I https://madtrainingapi.madleads.ai       # 502 expected before first deploy
-   ```
+**`madtrainingapi.madleads.ai.conf`** — reverse-proxy host. The `[P]` rewrite
+lives in `.htaccess` (managed by `deploy.ps1`), so the vhost itself only needs
+to enable AllowOverride + the ProxyPassReverse for Apache to rewrite
+`Location:` / `Set-Cookie:` headers (ProxyPassReverse is **not** allowed in
+`.htaccess` — context error):
+```apache
+<VirtualHost *:80>
+    ServerName madtrainingapi.madleads.ai
+    Alias /.well-known/acme-challenge/ /var/www/letsencrypt/.well-known/acme-challenge/
+    <Directory /var/www/letsencrypt/.well-known/acme-challenge>
+        Options None
+        AllowOverride None
+        Require all granted
+    </Directory>
+    DocumentRoot /home/madproducts/madtrainingapi.madleads.ai
+    ProxyRequests Off
+    ProxyPreserveHost On
+    ProxyPassReverse / http://127.0.0.1:3003/
+    <Directory /home/madproducts/madtrainingapi.madleads.ai>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+    Timeout 300
+    ProxyTimeout 300
+    ErrorLog ${APACHE_LOG_DIR}/madtrainingapi.madleads.ai.error.log
+    CustomLog ${APACHE_LOG_DIR}/madtrainingapi.madleads.ai.access.log combined
+</VirtualHost>
+```
 
-If issuance fails, the panel surfaces the certbot error. Most common cause:
-A record hasn't propagated yet — wait 10 min and retry.
+Enable both + reload Apache:
+```bash
+sudo a2ensite madtraining.madleads.ai madtrainingapi.madleads.ai
+sudo apache2ctl configtest && sudo systemctl reload apache2
+```
 
-### 4. .NET 8 ASP.NET Core runtime on the box (one-off, no sudo)
+### 4. Let's Encrypt certs (as `ubuntu` with sudo)
+
+`certbot --apache` issues the cert AND rewrites the vhost into an HTTPS
+`-le-ssl.conf` variant with an HTTP→HTTPS redirect:
+
+```bash
+sudo certbot --apache --non-interactive --agree-tos \
+  --email anton@madproducts.co.za --redirect \
+  -d madtraining.madleads.ai \
+  -d madtrainingapi.madleads.ai
+```
+
+After issuance, **re-add `ProxyPassReverse` to the generated
+`madtrainingapi.madleads.ai-le-ssl.conf`** — certbot copies most directives
+but not always `ProxyPassReverse`. Then reload Apache.
+
+Renewals are handled automatically by certbot's systemd timer (`systemctl list-timers certbot`).
+
+### 5. .NET 8 ASP.NET Core runtime (as `madproducts`, no sudo)
 
 ```bash
 ssh madproducts@208.113.128.35
@@ -89,20 +159,35 @@ curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
 bash /tmp/dotnet-install.sh --channel 8.0 --runtime aspnetcore --install-dir ~/.dotnet
 echo 'export DOTNET_ROOT=$HOME/.dotnet' >> ~/.bashrc
 echo 'export PATH=$DOTNET_ROOT:$PATH'   >> ~/.bashrc
-# verify in a fresh login shell:
 bash -lc 'dotnet --list-runtimes'   # should list Microsoft.AspNetCore.App 8.0.x
 ```
 
-### 5. PM2 startup unit (once per box, already done for ms-api/ml-api/mh-api)
+### 6. PM2 startup unit
 
-`pm2 startup` was run on this box when ms-api was first deployed; the systemd
-unit survives reboot. After every deploy, `deploy.ps1` calls `pm2 save` so the
-new app is included in the dump.
+`pm2 startup` was run on the box during the first NestJS deploy; the systemd
+unit `pm2-madproducts.service` is enabled and survives reboot. `deploy.ps1`
+calls `pm2 save` after every deploy so the new app stays in the dump.
 
-### 6. `.env.deploy`
+### 7. `.env.deploy`
 
 Copy `.env.deploy.example` to `.env.deploy` and fill in `SFTP_PASS`,
-`DB_CONNECTION_STRING` (with the real password), and a fresh `JWT_KEY`.
+`DB_CONNECTION_STRING` (with the real password — keep `Encrypt=False`, see
+note in the example), and a fresh `JWT_KEY`.
+
+### Gotchas you'll hit if you skip a step
+
+- **`ProxyPassReverse not allowed here` in error log** — it's in `.htaccess`
+  instead of the vhost. The directive is server/vhost/directory context only.
+  Move it into the vhost.
+- **API crashloops with `SSL Provider, error: 31`** — Ubuntu 24.04 OpenSSL 3
+  rejects the cipher the remote MSSQL negotiates. `deploy.ps1` ships an
+  `openssl.cnf` that lowers `SECLEVEL=0` / `MinProtocol=TLSv1.0` for the
+  dotnet process only, via `OPENSSL_CONF` exported in `start.sh`. Don't
+  remove it.
+- **`./.env: line N: User: command not found`** — `start.sh` is sourcing
+  `.env` with `. ./.env` instead of the line-by-line parser. The connection
+  string contains `User Id=...` which bash then runs as a command. The
+  current `start.sh` uses a manual key=value loader to avoid this.
 
 ---
 

@@ -281,43 +281,95 @@ if ($doBackend -and -not $SkipBuild) {
     New-Item -ItemType Directory -Path $backendStage | Out-Null
     Copy-Item "$publishOut\*" $backendStage -Recurse -Force
 
-    # Production .env. PM2 reads this via `bash -lc` cwd so the dotnet process
-    # inherits it. Connection string + JWT secret + CORS_ORIGINS are the three
-    # values that must differ from the bundled appsettings.json.
-    $prodDotEnv = @"
-ASPNETCORE_ENVIRONMENT=Production
-ASPNETCORE_URLS=http://127.0.0.1:$($cfg.API_PORT)
-DOTNET_RUNNING_IN_CONTAINER=false
+    # Production .env. start.sh reads this with a manual key/value loader so
+    # that values containing spaces or semicolons (the SQL Server connection
+    # string has both: `User Id=...;Password=...;`) don't get reinterpreted by
+    # bash as commands. The loader strips CR (in case Windows writes CRLF) and
+    # surrounding quotes. We still wrap values in double-quotes here so the
+    # file is also valid shell syntax for `. ./.env` if anyone uses it that way.
+    #
+    # Connection string + JWT secret + CORS_ORIGINS are the three values that
+    # must differ from the bundled appsettings.json.
+    function Escape-EnvValue {
+        param([string]$v)
+        # Backslash-escape inner double quotes; everything else is fine inside
+        # the literal-quote loader.
+        return $v.Replace('"','\"')
+    }
+    $envLines = @(
+        'ASPNETCORE_ENVIRONMENT="Production"',
+        ('ASPNETCORE_URLS="http://127.0.0.1:' + $cfg.API_PORT + '"'),
+        'DOTNET_RUNNING_IN_CONTAINER="false"',
+        '',
+        ('ConnectionStrings__DefaultConnection="' + (Escape-EnvValue $cfg.DB_CONNECTION_STRING) + '"'),
+        '',
+        ('Jwt__Key="'      + (Escape-EnvValue $cfg.JWT_KEY)      + '"'),
+        ('Jwt__Issuer="'   + (Escape-EnvValue $cfg.JWT_ISSUER)   + '"'),
+        ('Jwt__Audience="' + (Escape-EnvValue $cfg.JWT_AUDIENCE) + '"'),
+        '',
+        ('CORS_ORIGINS="'  + (Escape-EnvValue $cfg.CORS_ORIGINS) + '"')
+    )
+    # LF-only, no BOM. CRLF would survive the manual parser (it strips CR) but
+    # LF keeps the file portable to any other reader.
+    $envText = ($envLines -join "`n") + "`n"
+    [System.IO.File]::WriteAllText("$backendStage\.env", $envText, (New-Object System.Text.UTF8Encoding $false))
 
-ConnectionStrings__DefaultConnection=$($cfg.DB_CONNECTION_STRING)
+    # OpenSSL override. Ubuntu 24.04 ships OpenSSL 3.0 with SECLEVEL=2 by default,
+    # which refuses TLS 1.0/1.1 and weak DH params. The remote MSSQL Server at
+    # 41.185.13.202 negotiates a cipher that OpenSSL rejects -> "SSL Provider,
+    # error: 31 - Encryption(ssl/tls) handshake failed". Microsoft.Data.SqlClient
+    # encrypts the login packet even with Encrypt=False in the connection string,
+    # so we can't avoid the handshake. Lowering SECLEVEL to 0 + MinProtocol to
+    # TLSv1.0 ONLY for the .NET process (via OPENSSL_CONF) is the standard fix.
+    # System-wide config is unchanged.
+    $opensslCnf = @'
+openssl_conf = openssl_init
 
-Jwt__Key=$($cfg.JWT_KEY)
-Jwt__Issuer=$($cfg.JWT_ISSUER)
-Jwt__Audience=$($cfg.JWT_AUDIENCE)
+[openssl_init]
+ssl_conf = ssl_sect
 
-CORS_ORIGINS=$($cfg.CORS_ORIGINS)
-"@
-    # UTF-8 without BOM: bash's `. ./.env` chokes on the BOM as part of the
-    # first line's value (ASPNETCORE_ENVIRONMENT would arrive as "﻿ASP...").
-    [System.IO.File]::WriteAllText("$backendStage\.env", $prodDotEnv, (New-Object System.Text.UTF8Encoding $false))
+[ssl_sect]
+system_default = system_default_sect
 
-    # PM2 entry script. `bash -lc` loads ~/.bashrc so $HOME/.dotnet is on PATH.
-    # Reads .env line-by-line and exports each KEY=VALUE before exec'ing dotnet,
-    # which is the equivalent of dotenv preloading for a .NET process.
+[system_default_sect]
+MinProtocol = TLSv1.0
+CipherString = DEFAULT@SECLEVEL=0
+'@
+    [System.IO.File]::WriteAllText("$backendStage\openssl.cnf", ($opensslCnf -replace "`r`n","`n"), (New-Object System.Text.UTF8Encoding $false))
+
+    # PM2 entry script. PM2 launches this via `pm2 start ... --interpreter bash`
+    # so $HOME/.dotnet is on PATH via the login profile. Uses a manual key/value
+    # loader (NOT `. ./.env`) so values containing spaces or semicolons survive
+    # unmolested - sourcing the file lets bash reinterpret e.g. `User Id=foo` as
+    # a command. The parser strips CR (in case the upload picked up CRLF) and
+    # one matched pair of surrounding double-quotes.
     $pm2Entry = @'
 #!/usr/bin/env bash
-# PM2 entry for madtraining-api. Loads .env then exec's dotnet LMS.Api.dll.
+# PM2 entry for madtraining-api. Loads .env safely then exec's dotnet LMS.Api.dll.
 set -e
 cd "$(dirname "$0")"
+# Per-process OpenSSL override so Microsoft.Data.SqlClient can complete the
+# pre-login handshake against the SECLEVEL=0-required MSSQL server.
+export OPENSSL_CONF="$(pwd)/openssl.cnf"
 if [ -f .env ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . ./.env
-  set +a
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in ''|\#*) continue ;; esac
+    key="${line%%=*}"
+    val="${line#*=}"
+    if [ "${val:0:1}" = '"' ] && [ "${val: -1}" = '"' ]; then
+      val="${val:1:${#val}-2}"
+      val="${val//\\\"/\"}"
+    fi
+    export "$key=$val"
+  done < .env
 fi
 exec "${DOTNET_ROOT:-$HOME/.dotnet}/dotnet" LMS.Api.dll
 '@
-    [System.IO.File]::WriteAllText("$backendStage\start.sh", $pm2Entry, (New-Object System.Text.UTF8Encoding $false))
+    # LF-only, no BOM - bash on the box will choke on CRLF (`\r` becomes part
+    # of the last token on each line, breaking case-matches like `\#*`).
+    $pm2EntryLf = $pm2Entry -replace "`r`n", "`n"
+    [System.IO.File]::WriteAllText("$backendStage\start.sh", $pm2EntryLf, (New-Object System.Text.UTF8Encoding $false))
 
     # Bundle. One SFTP put is dramatically faster than walking hundreds of
     # publish files; server-side `tar -xzf` reassembles in 1-2 seconds.
@@ -334,6 +386,11 @@ exec "${DOTNET_ROOT:-$HOME/.dotnet}/dotnet" LMS.Api.dll
     if (Test-Path $apiWebStage) { Remove-Item $apiWebStage -Recurse -Force }
     New-Item -ItemType Directory -Path $apiWebStage | Out-Null
 
+    # NOTE on directive contexts: ProxyPassReverse, ProxyPassReverseCookieDomain,
+    # and ProxyPreserveHost are NOT permitted in .htaccess (Apache returns 500
+    # with "X not allowed here" in the error log). They live in the vhost
+    # itself (see setup notes in DEPLOY.md). The .htaccess only does the [P]
+    # rewrite, which IS allowed under AllowOverride FileInfo.
     $apiHtaccess = @"
 # madtrainingapi.madleads.ai reverse-proxy to PM2 on 127.0.0.1:$($cfg.API_PORT)
 # Managed by deploy.ps1 - regenerated on every backend deploy.
@@ -350,11 +407,6 @@ RequestHeader set X-Forwarded-Host "%{HTTP_HOST}s"
 
 # Proxy everything to PM2. The [P] flag requires mod_proxy + mod_proxy_http.
 RewriteRule ^(.*)`$ http://127.0.0.1:$($cfg.API_PORT)/`$1 [P,QSA,L]
-
-# Match Location/Set-Cookie domains back to the public URL.
-ProxyPassReverse        / http://127.0.0.1:$($cfg.API_PORT)/
-ProxyPassReverseCookieDomain 127.0.0.1 madtrainingapi.madleads.ai
-ProxyPreserveHost       On
 
 Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains"
 Header always set X-Content-Type-Options "nosniff"
@@ -545,8 +597,9 @@ if ($DryRun) {
 } else {
     $checks = @()
     if ($doFrontend) { $checks += @{ name='Frontend'; url=$cfg.FRONTEND_PUBLIC_URL;                expected=@(200, 304) } }
-    # /api/auth/me is JWT-protected -> 401 without a token is the success signal.
-    if ($doBackend)  { $checks += @{ name='API';      url="$($cfg.API_PUBLIC_URL)/api/auth/me";    expected=@(401, 405) } }
+    # /api/courses is [Authorize] -> 401 without a token is the "API up + DB
+    # reachable" success signal. (AuthController has no /me endpoint.)
+    if ($doBackend)  { $checks += @{ name='API';      url="$($cfg.API_PUBLIC_URL)/api/courses";    expected=@(401, 405) } }
 
     if ($doBackend) {
         Write-Info "Waiting 5s for PM2 + Apache to settle..."
