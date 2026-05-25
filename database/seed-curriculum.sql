@@ -6,16 +6,16 @@ USE LmsDb;
 GO
 
 -- Admin user
-IF NOT EXISTS (SELECT 1 FROM Users WHERE Email = 'admin@lms.com')
+IF NOT EXISTS (SELECT 1 FROM Users WHERE Email = 'admin@madlearn.local')
 INSERT INTO Users (Username, Email, PasswordHash, Role)
-VALUES ('admin', 'admin@lms.com',
+VALUES ('admin', 'admin@madlearn.local',
         '$2a$11$K8xQzL9mN3pR7vH2wX5yOeJqF4iD6uA1bC8gE0hM2nS5tW7kP9rY3',  -- Admin@123
         'Admin');
 
 -- Student user
-IF NOT EXISTS (SELECT 1 FROM Users WHERE Email = 'student@lms.com')
+IF NOT EXISTS (SELECT 1 FROM Users WHERE Email = 'student@madlearn.local')
 INSERT INTO Users (Username, Email, PasswordHash, Role)
-VALUES ('student1', 'student@lms.com',
+VALUES ('student1', 'student@madlearn.local',
         '$2a$11$K8xQzL9mN3pR7vH2wX5yOeJqF4iD6uA1bC8gE0hM2nS5tW7kP9rY3',  -- Student@123
         'Student');
 

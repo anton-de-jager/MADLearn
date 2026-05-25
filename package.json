@@ -1,0 +1,13 @@
+{
+  "name": "madlearn",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "setup": "pnpm install --filter lms-frontend --frozen-lockfile",
+    "start:web": "pnpm --dir apps/web start",
+    "build:web": "pnpm --dir apps/web build",
+    "start:api": "dotnet run --project apps/api/LMS.Api/LMS.Api.csproj --urls http://localhost:3016",
+    "build:api": "dotnet build apps/api/LMS.sln --nologo",
+    "publish:api": "dotnet publish apps/api/LMS.Api/LMS.Api.csproj -c Release -o \"%TEMP%/madlearn-api\" --no-self-contained --nologo"
+  }
+}
