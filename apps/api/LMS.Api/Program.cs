@@ -84,7 +84,9 @@ if (corsOrigins.Length == 0)
     corsOrigins = new[] {
         "https://madlearn.madprospects.com",
         "http://localhost:4216",
-        "http://localhost:4200"
+        "http://127.0.0.1:4216",
+        "http://localhost:4200",
+        "http://127.0.0.1:4200"
     };
 }
 builder.Services.AddCors(options =>
