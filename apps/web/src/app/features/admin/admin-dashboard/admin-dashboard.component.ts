@@ -1,6 +1,6 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
@@ -9,15 +9,17 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MatSortModule } from '@angular/material/sort';
 import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { FormsModule } from '@angular/forms';
 import { AdminService } from '../../../core/services/admin.service';
-import { TestResult, UserSummary } from '../../../core/models/models';
+import { AdminLearningInsights, TestResult, UserSummary } from '../../../core/models/models';
+import { LearningIntelligenceService } from '../../../core/services/learning-intelligence.service';
 
 @Component({
   selector: 'app-admin-dashboard',
   standalone: true,
   imports: [CommonModule, RouterLink, MatCardModule, MatTableModule, MatButtonModule,
-    MatIconModule, MatTabsModule, MatSortModule, MatInputModule, MatFormFieldModule, FormsModule],
+    MatIconModule, MatTabsModule, MatSortModule, MatInputModule, MatFormFieldModule, MatTooltipModule, FormsModule],
   template: `
     <div class="page-container">
       <div class="mb-8">
@@ -45,7 +47,90 @@ import { TestResult, UserSummary } from '../../../core/models/models';
         </div>
       </div>
 
-      <mat-tab-group>
+      <div class="mb-6 flex flex-wrap gap-2">
+        <a routerLink="/admin"><button mat-stroked-button><mat-icon>monitoring</mat-icon> Risk Radar</button></a>
+        <a routerLink="/admin/learners"><button mat-stroked-button><mat-icon>groups</mat-icon> Learners</button></a>
+        <a routerLink="/admin/test-results"><button mat-stroked-button><mat-icon>fact_check</mat-icon> Test Results</button></a>
+        <a routerLink="/admin/skills-interventions"><button mat-stroked-button><mat-icon>grid_view</mat-icon> Skills & Interventions</button></a>
+        <a routerLink="/ai"><button mat-flat-button color="primary"><mat-icon>cloud_sync</mat-icon> MADCloud Operator</button></a>
+      </div>
+
+      <mat-tab-group [selectedIndex]="selectedTabIndex">
+        <mat-tab label="Command Centre">
+          <div class="grid gap-6 pt-6 lg:grid-cols-[1.05fr_0.95fr]">
+            <mat-card class="p-6">
+              <div class="mb-4 flex items-center gap-3">
+                <mat-icon class="text-violet-600">monitoring</mat-icon>
+                <div>
+                  <h2 class="text-xl font-bold text-gray-900">Cohort Risk Radar</h2>
+                  <p class="text-sm text-gray-500">Learners who need a manager nudge, remediation, or MADCloud revision plan.</p>
+                </div>
+              </div>
+              <div class="space-y-3">
+                @for (learner of insights?.atRiskLearners || []; track learner.userId) {
+                  <div class="rounded-lg border border-red-100 bg-red-50/60 p-4">
+                    <div class="flex items-center justify-between gap-4">
+                      <div>
+                        <p class="font-bold text-gray-900">{{ learner.name }}</p>
+                        <p class="text-xs text-gray-500">{{ learner.email }}</p>
+                      </div>
+                      <span class="rounded-full bg-white px-3 py-1 text-sm font-bold text-red-600">{{ learner.averageScore }}%</span>
+                    </div>
+                    <p class="mt-3 text-sm leading-6 text-gray-700">{{ learner.recommendedAction }}</p>
+                  </div>
+                }
+                @if (!insights?.atRiskLearners?.length) {
+                  <div class="rounded-lg border border-green-100 bg-green-50 p-4 text-sm font-medium text-green-700">No at-risk learners detected from current evidence.</div>
+                }
+              </div>
+            </mat-card>
+
+            <mat-card class="p-6">
+              <div class="mb-4 flex items-center gap-3">
+                <mat-icon class="text-amber-600">hub</mat-icon>
+                <div>
+                  <h2 class="text-xl font-bold text-gray-900">MADProspects Events</h2>
+                  <p class="text-sm text-gray-500">Canonical signals ready for universe integrations.</p>
+                </div>
+              </div>
+              <div class="grid gap-3">
+                @for (intervention of insights?.interventionQueue || []; track intervention.userId + intervention.trigger) {
+                  <div class="rounded-lg border border-gray-200 bg-white p-4">
+                    <p class="font-bold text-gray-900">{{ intervention.trigger }}</p>
+                    <p class="mt-1 text-sm text-gray-600">{{ intervention.learnerName }} - {{ intervention.action }}</p>
+                  </div>
+                }
+                <div class="rounded-lg border border-violet-100 bg-violet-50 p-4">
+                  <p class="font-bold text-violet-900">Supported events</p>
+                  <p class="mt-1 text-sm text-violet-800">UserRegistered, CourseAssigned, LessonCompleted, TestSubmitted, CertificateIssued, LearnerAtRisk, MadCloudTaskCompleted.</p>
+                </div>
+              </div>
+            </mat-card>
+
+            <mat-card class="p-6 lg:col-span-2">
+              <div class="mb-4 flex items-center gap-3">
+                <mat-icon class="text-green-600">grid_view</mat-icon>
+                <div>
+                  <h2 class="text-xl font-bold text-gray-900">Skills Matrix</h2>
+                  <p class="text-sm text-gray-500">Course skills mapped to completion and assessment performance.</p>
+                </div>
+              </div>
+              <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                @for (skill of insights?.skillsMatrix || []; track skill.skill + skill.courseTitle) {
+                  <div class="rounded-lg border border-gray-200 bg-white p-4">
+                    <p class="font-bold text-gray-900">{{ skill.skill }}</p>
+                    <p class="text-xs text-gray-500">{{ skill.courseTitle }}</p>
+                    <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+                      <span class="rounded bg-gray-50 px-2 py-1">Score {{ skill.averageScore }}%</span>
+                      <span class="rounded bg-gray-50 px-2 py-1">Complete {{ skill.completionRate }}%</span>
+                    </div>
+                  </div>
+                }
+              </div>
+            </mat-card>
+          </div>
+        </mat-tab>
+
         <!-- Students Tab -->
         <mat-tab label="Students ({{ students.length }})">
           <div class="pt-6">
@@ -155,10 +240,14 @@ import { TestResult, UserSummary } from '../../../core/models/models';
 })
 export class AdminDashboardComponent implements OnInit {
   private adminService = inject(AdminService);
+  private learningIntelligence = inject(LearningIntelligenceService);
+  private route = inject(ActivatedRoute);
 
   users: UserSummary[] = [];
   testResults: TestResult[] = [];
+  insights: AdminLearningInsights | null = null;
   searchQuery = '';
+  selectedTabIndex = 0;
 
   get students() { return this.users.filter(u => u.role !== 'Admin' || true); }
   get filteredStudents() {
@@ -180,7 +269,9 @@ export class AdminDashboardComponent implements OnInit {
   studentColumns = ['username', 'role', 'completedLessons', 'totalTests', 'averageScore', 'createdAt', 'actions'];
 
   ngOnInit() {
+    this.selectedTabIndex = Number(this.route.snapshot.data['tabIndex'] ?? 0);
     this.adminService.getUsers().subscribe(u => this.users = u);
     this.adminService.getTestResults().subscribe(r => this.testResults = r);
+    this.learningIntelligence.getAdminInsights().subscribe(i => this.insights = i);
   }
 }

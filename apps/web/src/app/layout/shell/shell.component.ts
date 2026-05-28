@@ -24,28 +24,68 @@ import { AuthService } from '../../core/services/auth.service';
           </div>
         </div>
 
-        <nav class="flex-1 p-4 space-y-1">
-          <a routerLink="/dashboard" routerLinkActive="active" class="nav-link">
+        <nav class="flex-1 overflow-auto p-4">
+          <p class="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-gray-400">Learner</p>
+          <div class="space-y-1">
+          <a routerLink="/dashboard" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="nav-link">
             <mat-icon>dashboard</mat-icon>
             <span>Dashboard</span>
+          </a>
+          <a routerLink="/courses" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="nav-link">
+            <mat-icon>school</mat-icon>
+            <span>Courses</span>
           </a>
           <a routerLink="/my-progress" routerLinkActive="active" class="nav-link">
             <mat-icon>trending_up</mat-icon>
             <span>My Progress</span>
           </a>
+          <a routerLink="/evidence" routerLinkActive="active" class="nav-link">
+            <mat-icon>workspace_premium</mat-icon>
+            <span>Evidence & Certificates</span>
+          </a>
           <a routerLink="/mad-cloud" routerLinkActive="active" class="nav-link">
             <mat-icon>cloud_done</mat-icon>
-            <span>MAD Cloud</span>
+            <span>MADCloud Coach</span>
           </a>
+          </div>
+
           @if (isAdmin()) {
-            <div class="pt-4 pb-2">
-              <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider px-4">Admin</p>
+            <div class="pt-5 pb-2">
+              <p class="px-4 text-xs font-semibold uppercase tracking-wider text-gray-400">Admin</p>
             </div>
-            <a routerLink="/admin" routerLinkActive="active" class="nav-link">
+            <div class="space-y-1">
+            <a routerLink="/admin" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="nav-link">
               <mat-icon>admin_panel_settings</mat-icon>
               <span>Admin Dashboard</span>
             </a>
+            <a routerLink="/admin/learners" routerLinkActive="active" class="nav-link">
+              <mat-icon>groups</mat-icon>
+              <span>Learners</span>
+            </a>
+            <a routerLink="/admin/test-results" routerLinkActive="active" class="nav-link">
+              <mat-icon>fact_check</mat-icon>
+              <span>Test Results</span>
+            </a>
+            <a routerLink="/admin/skills-interventions" routerLinkActive="active" class="nav-link">
+              <mat-icon>monitoring</mat-icon>
+              <span>Skills & Interventions</span>
+            </a>
+            <a routerLink="/ai" routerLinkActive="active" class="nav-link">
+              <mat-icon>cloud_sync</mat-icon>
+              <span>MADCloud Operator</span>
+            </a>
+            </div>
           }
+
+          <div class="pt-5 pb-2">
+            <p class="px-4 text-xs font-semibold uppercase tracking-wider text-gray-400">Account & Billing</p>
+          </div>
+          <div class="space-y-1">
+            <a routerLink="/billing" routerLinkActive="active" class="nav-link">
+              <mat-icon>payments</mat-icon>
+              <span>Subscription Plans</span>
+            </a>
+          </div>
         </nav>
 
         <div class="p-4 border-t border-gray-100">

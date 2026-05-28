@@ -16,13 +16,22 @@ export class AuthService {
   constructor(private http: HttpClient, private router: Router) {}
 
   login(dto: LoginDto): Observable<AuthResponse> {
-    return this.http.post<AuthResponse>(`${environment.apiUrl}/auth/login`, dto).pipe(
+    const payload: LoginDto = {
+      email: (dto.email || '').trim().toLowerCase(),
+      password: dto.password || ''
+    };
+    return this.http.post<AuthResponse>(`${environment.apiUrl}/auth/login`, payload).pipe(
       tap(res => this.storeAuth(res))
     );
   }
 
   register(dto: RegisterDto): Observable<AuthResponse> {
-    return this.http.post<AuthResponse>(`${environment.apiUrl}/auth/register`, dto).pipe(
+    const payload: RegisterDto = {
+      username: (dto.username || '').trim(),
+      email: (dto.email || '').trim().toLowerCase(),
+      password: dto.password || ''
+    };
+    return this.http.post<AuthResponse>(`${environment.apiUrl}/auth/register`, payload).pipe(
       tap(res => this.storeAuth(res))
     );
   }

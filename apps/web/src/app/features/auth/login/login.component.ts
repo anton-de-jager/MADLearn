@@ -21,7 +21,7 @@ import { AuthService } from '../../../core/services/auth.service';
         <div class="text-center mb-8">
           <img src="assets/logo.png" alt="MADLearn" class="h-20 w-auto mx-auto mb-4">
           <h1 class="text-3xl font-bold text-gray-900">MADLearn</h1>
-          <p class="text-gray-500 mt-2">AI-powered learning for business teams</p>
+          <p class="text-gray-500 mt-2">MADCloud-powered learning for business teams</p>
         </div>
 
         <mat-card class="p-8">
@@ -73,7 +73,7 @@ import { AuthService } from '../../../core/services/auth.service';
 
           <div class="mt-4 p-3 bg-gray-50 rounded-lg text-xs text-gray-500">
             <strong>Demo credentials:</strong><br>
-            Admin: admin&#64;madprospects.com / P&#64;szw0rd<br>
+            Admin: admin&#64;madprospects.com / P&#64;szw0rdMP<br>
             Student: student&#64;madlearn.local / Student&#64;123
           </div>
         </mat-card>

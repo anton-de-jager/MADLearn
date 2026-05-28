@@ -1,7 +1,7 @@
 {
   "name": "MADLearn",
   "short_name": "MADLearn",
-  "description": "AI-powered learning management for South African businesses.",
+  "description": "MADCloud-powered learning management for South African businesses.",
   "start_url": "/home",
   "display": "standalone",
   "background_color": "#ffffff",
