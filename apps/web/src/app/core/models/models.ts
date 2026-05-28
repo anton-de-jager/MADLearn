@@ -135,6 +135,13 @@ export interface MadCloudTaskRequest {
   taskType: string;
 }
 
+export interface MadCloudAssistRequest {
+  prompt: string;
+  intent: string;
+  courseId?: number | null;
+  lessonId?: number | null;
+}
+
 export interface MadCloudTask {
   id: number;
   taskType: string;
@@ -144,4 +151,86 @@ export interface MadCloudTask {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
+}
+
+export interface LearningPath {
+  courses: LearningPathItem[];
+  weakAreas: string[];
+  recommendedMadCloudTask: string;
+}
+
+export interface LearningPathItem {
+  courseId: number;
+  courseTitle: string;
+  completionPercentage: number;
+  completedLessons: number;
+  totalLessons: number;
+  nextLessonId: number | null;
+  nextLessonTitle: string | null;
+  weakAreas: string[];
+  recommendedAction: string;
+}
+
+export interface EvidencePack {
+  learnerName: string;
+  learnerEmail: string;
+  completedLessons: number;
+  testsTaken: number;
+  averageScore: number;
+  certificateReady: boolean;
+  certificateStatus: string;
+  evidence: EvidenceLine[];
+}
+
+export interface EvidenceLine {
+  title: string;
+  when: string | null;
+  eventType: string;
+}
+
+export interface LearningEvent {
+  type: string;
+  occurredAt: string;
+  title: string;
+  data: Record<string, string>;
+}
+
+export interface AdminLearningInsights {
+  learnerCount: number;
+  atRiskLearners: AtRiskLearner[];
+  courseAnalytics: CourseInsight[];
+  skillsMatrix: SkillMatrix[];
+  interventionQueue: Intervention[];
+}
+
+export interface AtRiskLearner {
+  userId: number;
+  name: string;
+  email: string;
+  completedLessons: number;
+  averageScore: number;
+  failedTests: number;
+  recommendedAction: string;
+}
+
+export interface CourseInsight {
+  courseId: number;
+  title: string;
+  completionRate: number;
+  averageScore: number;
+  skills: string[];
+}
+
+export interface SkillMatrix {
+  skill: string;
+  courseTitle: string;
+  averageScore: number;
+  completionRate: number;
+}
+
+export interface Intervention {
+  userId: number;
+  learnerName: string;
+  trigger: string;
+  action: string;
 }
