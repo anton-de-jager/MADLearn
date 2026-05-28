@@ -206,7 +206,8 @@ $required = @(
     'API_URL','FE_URL',
     'API_FTP_HOST','API_FTP_USER','API_FTP_PASS','API_FTP_PATH',
     'FE_FTP_HOST','FE_FTP_USER','FE_FTP_PASS','FE_FTP_PATH',
-    'ConnectionStrings__Default','Jwt__Secret','Jwt__Issuer','Jwt__Audience'
+    'ConnectionStrings__Default','Jwt__Secret','Jwt__Issuer','Jwt__Audience',
+    'PAYFAST_PASSPHRASE','PAYFAST_MERCHANT_KEY'
 )
 foreach ($k in $required) {
     if (-not $cfg.ContainsKey($k) -or [string]::IsNullOrWhiteSpace($cfg[$k])) {
@@ -328,14 +329,37 @@ if ($doBackend -and -not $SkipBuild) {
     # IIS hosting config (ANCM InProcess + ASPNETCORE_ENVIRONMENT env var).
     Copy-Item (Join-Path $repoRoot 'deploy\madlearn\web.config') (Join-Path $apiStaging 'web.config') -Force
 
+    # Inject runtime secrets into the staged appsettings.json. The tracked
+    # appsettings.json keeps these fields blank so secrets don't enter git;
+    # the live deployment gets the real values from .env.deploy.madlearn here.
+    # Mapping:
+    #   PAYFAST_PASSPHRASE   -> Payfast.Passphrase   (-> Payfast:Passphrase)
+    #   PAYFAST_MERCHANT_KEY -> Payfast.MerchantKey  (-> Payfast:MerchantKey)
+    $stagedAppsettings = Join-Path $apiStaging 'appsettings.json'
+    if (Test-Path $stagedAppsettings) {
+        $appsettings = Get-Content $stagedAppsettings -Raw | ConvertFrom-Json
+        if (-not $appsettings.PSObject.Properties.Match('Payfast').Count) {
+            $appsettings | Add-Member -NotePropertyName 'Payfast' -NotePropertyValue ([pscustomobject]@{})
+        }
+        if ($cfg.ContainsKey('PAYFAST_PASSPHRASE')) {
+            $appsettings.Payfast.Passphrase = $cfg['PAYFAST_PASSPHRASE']
+        }
+        if ($cfg.ContainsKey('PAYFAST_MERCHANT_KEY')) {
+            $appsettings.Payfast.MerchantKey = $cfg['PAYFAST_MERCHANT_KEY']
+        }
+        $appsettings | ConvertTo-Json -Depth 10 | Set-Content -Path $stagedAppsettings -Encoding UTF8
+        Write-Info "  Injected PayFast secrets into staged appsettings.json"
+    }
+
     # Sanitize .env: strip FTP_* deploy-only keys, keep app config. Plesk on
     # Windows does NOT run start.sh; the .env is just for operator inspection
     # on disk - the actual runtime config lives in appsettings.json (which
-    # already has the new DB/JWT after the config-rename commit) plus the
+    # has the runtime secrets injected just above) plus the
     # ASPNETCORE_ENVIRONMENT env var set by web.config.
     #
-    # If you want .env values to influence the running process, the App_Data
-    # path and DotNetEnv NuGet would let us load them. Not wired in yet.
+    # If you want .env values to influence the running process directly, the
+    # App_Data path and DotNetEnv NuGet would let us load them. Not wired in
+    # yet - for now we mutate appsettings.json on the wire instead.
     $serverEnv = Get-Content $envFile | Where-Object {
         $line = $_.Trim()
         if (-not $line -or $line.StartsWith('#')) { return $true }
