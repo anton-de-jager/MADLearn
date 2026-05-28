@@ -2,7 +2,7 @@
   "product": "MADLearn",
   "slug": "madlearn",
   "sourceCode": "C:\\Code\\madprospects\\madLearn",
-  "repository": "https://github.com/mad-leads/madlearn",
+  "repository": "https://github.com/anton-de-jager/MADLearn",
   "madcloud": {
     "role": "MADCloud is the only AI service provider for this application.",
     "apiUrlProd": "https://madcloudapi.madprospects.com",

@@ -115,6 +115,11 @@ using (var scope = app.Services.CreateScope())
         app.Logger.LogWarning(ex, "Database migration failed. Continuing with seed/bootstrap for existing tables.");
     }
 
+    // Idempotent schema bootstrap for tables that EF would create if MigrateAsync
+    // succeeded — survives a failed migration so newer tables (MadCloudTasks etc.)
+    // still come up on legacy databases.
+    await LMS.Infrastructure.Data.SchemaBootstrap.EnsureAsync(context, app.Logger);
+
     try
     {
         await DbSeeder.SeedAsync(context);
