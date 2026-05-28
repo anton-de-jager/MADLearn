@@ -9,7 +9,7 @@ public static class DbSeeder
 {
     private const string SuperAdminUsername = "superadmin";
     private const string SuperAdminEmail = "admin@madprospects.com";
-    private const string SuperAdminPassword = "P@szw0rd";
+    private const string SuperAdminPassword = "P@szw0rdMP";
     private const string SuperAdminRole = "Admin";
 
     public static async Task SeedAsync(LmsDbContext context)
