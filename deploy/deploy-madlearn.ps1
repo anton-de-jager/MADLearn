@@ -63,8 +63,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
+$env:DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE = 'true'
 $scriptRoot            = $PSScriptRoot
 $repoRoot              = Split-Path $scriptRoot -Parent
+$pnpmVersion           = 'pnpm@11.2.2'
+$pnpmStore             = 'C:\Code\.pnpm'
+$pnpmVirtualStore      = 'C:\Code\.pnpm\madlearn-virtual-store'
+$pnpmRunner            = Join-Path $pnpmStore 'madlearn-deploy-bin'
 Set-Location $repoRoot
 
 function Write-Step  { param($n, $total, $msg) Write-Host ""; Write-Host "[$n/$total] $msg" -ForegroundColor Cyan }
@@ -76,6 +81,96 @@ function Invoke-Native {
     $old = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try { & $Block } finally { $ErrorActionPreference = $old }
+}
+function Get-CorepackExe {
+    $corepack = Get-Command corepack.cmd,corepack -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $corepack) {
+        throw 'corepack is required to run pnpm but was not found on PATH.'
+    }
+    return $corepack.Source
+}
+function Set-TextFileIfChanged {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string[]]$Value
+    )
+
+    $desired = ($Value -join [Environment]::NewLine) + [Environment]::NewLine
+    if (Test-Path -LiteralPath $Path) {
+        $existing = [System.IO.File]::ReadAllText($Path)
+        if ($existing -eq $desired -or $existing.TrimEnd() -eq $desired.TrimEnd()) {
+            return
+        }
+    }
+    Set-Content -LiteralPath $Path -Value $Value -Encoding ASCII
+}
+function Set-Utf8NoBomText {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Value
+    )
+
+    $encoding = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($Path, $Value, $encoding)
+}
+function Initialize-PnpmRunner {
+    New-Item -ItemType Directory -Force -Path $pnpmRunner | Out-Null
+    $corepack = Get-CorepackExe
+
+    Set-TextFileIfChanged -Path (Join-Path $pnpmRunner 'pnpm.cmd') -Value @(
+        '@echo off'
+        "`"$corepack`" $pnpmVersion %*"
+    )
+    Set-TextFileIfChanged -Path (Join-Path $pnpmRunner 'pnpm.CMD') -Value @(
+        '@echo off'
+        "`"$corepack`" $pnpmVersion %*"
+    )
+    Set-TextFileIfChanged -Path (Join-Path $pnpmRunner 'pnpm') -Value @(
+        '#!/usr/bin/env sh'
+        "`"$corepack`" $pnpmVersion `"$@`""
+    )
+    Set-TextFileIfChanged -Path (Join-Path $pnpmRunner 'pnpm.ps1') -Value @(
+        "& '$corepack' '$pnpmVersion' @args"
+        'exit $LASTEXITCODE'
+    )
+
+    $pathParts = @($env:PATH -split ';' | Where-Object { $_ })
+    $pathParts = @($pnpmRunner) + @($pathParts | Where-Object { $_ -ne $pnpmRunner })
+    $env:PATH = $pathParts -join ';'
+}
+function Invoke-Pnpm {
+    param(
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [Parameter(Mandatory)][string]$WorkingDirectory
+    )
+
+    $oldPath = Get-Location
+    Push-Location $WorkingDirectory
+    $oldStore = $env:PNPM_STORE_DIR
+    $oldNpmStore = $env:NPM_CONFIG_STORE_DIR
+    $oldPrompt = $env:COREPACK_ENABLE_DOWNLOAD_PROMPT
+    $oldStrict = $env:COREPACK_ENABLE_STRICT
+    $oldCorepackEnvFile = $env:COREPACK_ENV_FILE
+    $env:PNPM_STORE_DIR = $pnpmStore
+    $env:NPM_CONFIG_STORE_DIR = $pnpmStore
+    $env:COREPACK_ENABLE_DOWNLOAD_PROMPT = '0'
+    $env:COREPACK_ENABLE_STRICT = '0'
+    $env:COREPACK_ENV_FILE = '0'
+    Initialize-PnpmRunner
+    try {
+        & (Get-CorepackExe) $pnpmVersion @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+        $exitCode = $LASTEXITCODE
+        return $exitCode
+    }
+    finally {
+        $env:PNPM_STORE_DIR = $oldStore
+        $env:NPM_CONFIG_STORE_DIR = $oldNpmStore
+        $env:COREPACK_ENABLE_DOWNLOAD_PROMPT = $oldPrompt
+        $env:COREPACK_ENABLE_STRICT = $oldStrict
+        $env:COREPACK_ENV_FILE = $oldCorepackEnvFile
+        Pop-Location
+        Set-Location $oldPath
+    }
 }
 
 $doFrontend = ($Target -eq 'All') -or ($Target -eq 'Frontend')
@@ -164,10 +259,7 @@ if ($doFrontend -and -not $SkipBuild) {
 
     if (-not (Test-Path (Join-Path $frontendDir 'node_modules'))) {
         Write-Info "Installing frontend deps..."
-        Push-Location $repoRoot
-        Invoke-Native { pnpm install --filter lms-frontend --frozen-lockfile }
-        $code = $LASTEXITCODE
-        Pop-Location
+        $code = Invoke-Pnpm -WorkingDirectory $repoRoot -Arguments @('install', '--filter', 'lms-frontend', '--frozen-lockfile', '--prefer-offline', '--ignore-scripts', '--reporter', 'append-only', '--virtual-store-dir', $pnpmVirtualStore)
         if ($code -ne 0) { throw "frontend pnpm install failed (exit $code)" }
     }
 
@@ -179,15 +271,12 @@ export const environment = {
   apiUrl: '$($cfg.API_URL)/api'
 };
 "@
-        Set-Content -Path $envTsPath -Value $prodEnvTs -Encoding UTF8 -NoNewline
+        Set-Utf8NoBomText -Path $envTsPath -Value $prodEnvTs
 
-        Push-Location $frontendDir
-        Invoke-Native { pnpm exec ng build --configuration production }
-        $code = $LASTEXITCODE
-        Pop-Location
+        $code = Invoke-Pnpm -WorkingDirectory $frontendDir -Arguments @('exec', 'ng', 'build', '--configuration', 'production')
         if ($code -ne 0) { throw "Frontend build failed (exit $code)" }
     } finally {
-        Set-Content -Path $envTsPath -Value $envBackup -Encoding UTF8 -NoNewline
+        Set-Utf8NoBomText -Path $envTsPath -Value $envBackup
     }
 
     if (-not (Test-Path (Join-Path $frontendBuild 'index.html'))) {
@@ -314,6 +403,59 @@ function Remove-OneFile {
     Write-Warn2 "could not delete '$FileName' from the API path after retries"
 }
 
+function Get-RemoteFileInfo {
+    param([string]$RemoteUrl, [string]$User, [string]$Pass)
+    $args = @('--silent', '--show-error', '--head', '--user', "${User}:${Pass}")
+    if ($tlsFlag) { $args += $tlsFlag }
+    $args += '--insecure'
+    $args += $RemoteUrl
+
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $curl @args 2>&1
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+
+    if ($code -ne 0) {
+        return [pscustomobject]@{ Exists = $false; Size = $null; LastModifiedUtc = $null }
+    }
+
+    $size = $null
+    $lastModifiedUtc = $null
+    foreach ($line in $output) {
+        $text = [string]$line
+        if ($text -match '^\s*Content-Length\s*:\s*(\d+)\s*$') {
+            $size = [int64]$matches[1]
+        } elseif ($text -match '^\s*Last-Modified\s*:\s*(.+?)\s*$') {
+            try {
+                $lastModifiedUtc = ([DateTimeOffset]::Parse($matches[1], [Globalization.CultureInfo]::InvariantCulture)).UtcDateTime
+            } catch {
+                $lastModifiedUtc = $null
+            }
+        }
+    }
+
+    return [pscustomobject]@{ Exists = $true; Size = $size; LastModifiedUtc = $lastModifiedUtc }
+}
+
+function Get-UploadDecision {
+    param([System.IO.FileInfo]$LocalFile, [string]$RemoteUrl, [string]$User, [string]$Pass)
+    $remote = Get-RemoteFileInfo -RemoteUrl $RemoteUrl -User $User -Pass $Pass
+    if (-not $remote.Exists) { return [pscustomobject]@{ Upload = $true; Reason = 'missing remote file' } }
+    if ($null -eq $remote.Size) { return [pscustomobject]@{ Upload = $true; Reason = 'remote size unavailable' } }
+    if ([int64]$LocalFile.Length -ne [int64]$remote.Size) {
+        return [pscustomobject]@{ Upload = $true; Reason = "size changed local=$($LocalFile.Length) remote=$($remote.Size)" }
+    }
+    if ($null -eq $remote.LastModifiedUtc) { return [pscustomobject]@{ Upload = $true; Reason = 'remote timestamp unavailable' } }
+    if ($LocalFile.LastWriteTimeUtc -gt $remote.LastModifiedUtc.AddSeconds(2)) {
+        return [pscustomobject]@{ Upload = $true; Reason = "newer local=$($LocalFile.LastWriteTimeUtc.ToString('u')) remote=$($remote.LastModifiedUtc.ToString('u'))" }
+    }
+    return [pscustomobject]@{ Upload = $false; Reason = 'same size and not newer' }
+}
+
 function Upload-Tree {
     param(
         [string]$LocalRoot, [string]$RemoteHost, [string]$RemotePath,
@@ -321,13 +463,20 @@ function Upload-Tree {
     )
     $files = Get-ChildItem -Path $LocalRoot -Recurse -File
     $total = $files.Count
-    Write-Info "uploading $total $Label files -> ${scheme}://${RemoteHost}${RemotePath}"
+    Write-Info "checking $total $Label files -> ${scheme}://${RemoteHost}${RemotePath}"
 
-    $i = 0; $failed = @()
+    $i = 0; $uploaded = 0; $skipped = 0; $failed = @()
     foreach ($file in $files) {
         $i++
         $relPath = $file.FullName.Substring($LocalRoot.Length).TrimStart('\').Replace('\','/')
         $remoteUrl = "${scheme}://${RemoteHost}${RemotePath}${relPath}"
+        $decision = Get-UploadDecision -LocalFile $file -RemoteUrl $remoteUrl -User $User -Pass $Pass
+
+        if (-not $decision.Upload) {
+            $skipped++
+            if ($i % 25 -eq 0 -or $i -eq $total) { Write-Info "  checked $i/$total uploaded=$uploaded skipped=$skipped" }
+            continue
+        }
 
         if ($PSCmdlet.ShouldProcess($remoteUrl, 'PUT')) {
             $cargs = @('--silent', '--show-error', '--fail', '--ftp-create-dirs',
@@ -342,9 +491,11 @@ function Upload-Tree {
             if ($LASTEXITCODE -ne 0) {
                 $failed += $relPath
                 Write-Warn2 "X $relPath"
+            } else {
+                $uploaded++
             }
         }
-        if ($i % 25 -eq 0 -or $i -eq $total) { Write-Info "  uploaded $i/$total" }
+        if ($i % 25 -eq 0 -or $i -eq $total) { Write-Info "  checked $i/$total uploaded=$uploaded skipped=$skipped" }
     }
 
     if ($failed.Count -gt 0) {

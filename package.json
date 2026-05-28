@@ -1,6 +1,7 @@
 {
   "name": "madlearn",
   "version": "1.0.0",
+  "packageManager": "pnpm@11.2.2",
   "private": true,
   "scripts": {
     "setup": "pnpm install --filter lms-frontend --frozen-lockfile",
